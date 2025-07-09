@@ -20,12 +20,15 @@
 #define ETH_MOSI  23
 #define ETH_MISO  19
 #define ETH_SCK   18
+#define PINO_PRESSAO 34
 
 // === Setpoints ===
 float TEMP_MIN = 20.0;
 float TEMP_MAX = 30.0;
 float UMID_MIN = 60.0;
 float UMID_MAX = 70.0;
+float PRESSAO_MIN = 500.0;
+float PRESSAO_MAX = 700.0; 
 
 // === Variáveis globais ===
 DHT dht(DHTPIN, DHTTYPE);
@@ -37,6 +40,7 @@ SPIClass spiETH(HSPI);
 byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED };
 float temperatura = 0.0;
 float umidade = 0.0;
+float pressao = 0.0;
 unsigned long tempoUltimaTroca = 0;
 bool mostrarTelaHora = true;
 bool portaFechada = true;
@@ -73,7 +77,7 @@ void inicializarSD() {
     // Arquivo não existe: criar com cabeçalho
     arquivo = SD.open("/log.csv", FILE_WRITE);
     if (arquivo) {
-      arquivo.println("DataHora,Temperatura,Umidade,PortaFechada");
+      arquivo.println("DataHora,Temperatura,Umidade,Pressao,PortaFechada");
       arquivo.close();
     } else {
       Serial.println("Erro ao criar log.csv");
@@ -86,8 +90,8 @@ void inicializarEthernet() {
   Ethernet.init(ETH_CS);  // Define CS para a biblioteca
 
   if (Ethernet.begin(mac) == 0) {
-    Serial.println("ERRO ETHERNET");
-    while (true);
+    lcd.print("ERRO ETHERNET");
+    while (1);
   }
 
   Serial.println("Ethernet conectada com sucesso. IP: ");
@@ -98,6 +102,7 @@ void inicializarEthernet() {
 void setup() {
   Serial.begin(115200);
   Wire.begin(21, 22);
+  analogReadResolution(12);  // ADC de 12 bits (0–4095)
   Serial.println("Inicializando sistema...");
   dht.begin();
   pinMode(ALARME_VERDE, OUTPUT);
@@ -115,6 +120,7 @@ void setup() {
 // === Loop principal ===
 void loop() {
   lerSensor();
+  lerPressao();
   verificarPorta();  
   verificarAlarmes();
   alternarTela();
@@ -138,11 +144,20 @@ void lerSensor() {
   }
 }
 
+// === Leitura do MPXV7002DP ===
+void lerPressao() {
+  int leitura = analogRead(PINO_PRESSAO);
+  float tensaoADC = leitura * 3.3 / 4095.0;     // Converte para tensão (dividida)
+  float tensaoOriginal = tensaoADC * 2.0;       // Corrige divisor resistivo 2:1
+  pressao = -(tensaoOriginal - 2.5) * 1000.0; // Converte para Pascal e inverte sinal
+}
+
 // === Verifica setpoints ===
 void verificarAlarmes() {
   bool alarmeTemp = (temperatura < TEMP_MIN || temperatura > TEMP_MAX);
   bool alarmeUmid = (umidade < UMID_MIN || umidade > UMID_MAX);
-  bool alarmeAtivo = alarmeTemp || alarmeUmid;
+  bool alarmePressao = (pressao < PRESSAO_MIN || pressao > PRESSAO_MAX);
+  bool alarmeAtivo = alarmeTemp || alarmeUmid || alarmePressao;
 
   digitalWrite(ALARME_VERDE, !alarmeAtivo);
   digitalWrite(ALARME_VERMELHO, alarmeAtivo);
@@ -167,18 +182,20 @@ void alternarTela() {
     lcd.setCursor(0, 1); lcd.print(hora);
   } else {
     char linha1[17], linha2[17];
-    snprintf(linha1, sizeof(linha1), "Temp: %.1f C", temperatura);
-    snprintf(linha2, sizeof(linha2), "Umid: %d %% %s   ", (int)umidade, portaFechada ? "OK" : "PORTA");
+    snprintf(linha1, sizeof(linha1), "T:%.1fC U:%d%%", temperatura, (int)umidade);
+    snprintf(linha2, sizeof(linha2), "P:%dPa [%s]", (int)pressao, portaFechada ? "OK" : "PORTA");
 
     lcd.setCursor(0, 0); lcd.print(linha1);
     lcd.setCursor(0, 1); lcd.print(linha2);
   }
 }
 
+// === Verifica estado da porta ===
  void verificarPorta() {
   portaFechada = digitalRead(REED_PIN) == LOW; // LOW = ímã presente = porta fechada
 }
 
+// === Grava dados no SD Card ===
 void gravarDados() {
   unsigned long agora = millis();
   static unsigned long ultimaGravacao = 0;
@@ -191,10 +208,11 @@ void gravarDados() {
     if (isnan(temperatura) || isnan(umidade)) return;
 
     char linha[64];
-    snprintf(linha, sizeof(linha), "%02d/%02d/%04d %02d:%02d:%02d,%.1f,%d,%s",
+    snprintf(linha, sizeof(linha), "%02d/%02d/%04d %02d:%02d:%02d,%.1f,%d,%.0f,%s",
              now.day(), now.month(), now.year(),
              now.hour(), now.minute(), now.second(),
-             temperatura, (int)umidade, portaFechada ? "true" : "false");
+             temperatura, (int)umidade, pressao,
+             portaFechada ? "true" : "false");
 
     arquivo = SD.open("/log.csv", FILE_WRITE);
     if (arquivo) {
