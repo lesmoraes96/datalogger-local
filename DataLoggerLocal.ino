@@ -6,6 +6,7 @@
 #include <SD.h>
 #include <Ethernet_Generic.h>
 #include <utility/w5100.h>
+#include <ArduinoModbus.h>
 
 // === Pinos e configurações ===
 #define DHTPIN 4
@@ -46,6 +47,8 @@ unsigned long tempoUltimaTroca = 0;
 bool mostrarTelaHora = true;
 bool portaFechada = true;
 bool alarmeAtivo = false;
+EthernetServer server(502);
+ModbusTCPServer modbusTCPServer;
 
 // === Utilitário para evitar conflito SPI ===
 void selecionarDispositivoSPI(int csAtivo) {
@@ -81,14 +84,14 @@ void inicializarSD() {
     lcd.print("ERRO SD");
     while (1);
   }
-
   selecionarDispositivoSPI(SD_CS);
   if (!SD.exists("/log.csv")) {
     arquivo = SD.open("/log.csv", FILE_WRITE);
     if (arquivo) {
       arquivo.println("DataHora,Temperatura,Umidade,Pressao,PortaFechada,AlarmeAtivo");
+      arquivo.flush();
       arquivo.close();
-    } else {
+      } else {
       Serial.println("Erro ao criar log.csv");
     }
   }
@@ -98,16 +101,24 @@ void inicializarSD() {
 void inicializarEthernet() {
   spiETH.begin(ETH_SCK, ETH_MISO, ETH_MOSI, ETH_CS);
   Ethernet.init(ETH_CS);
-
   if (Ethernet.begin(mac, &spiETH) == 0) {
     lcd.clear();
     lcd.print("ERRO ETHERNET");
     while (1);
   }
-
-  Serial.print("Ethernet conectada. IP: ");
+  Serial.print("Ethernet IP: ");
   Serial.println(Ethernet.localIP());
   digitalWrite(ETH_CS, HIGH);
+}
+
+void inicializarModbus() {
+  server.begin();
+  if (!modbusTCPServer.begin()) {
+    Serial.println("Falha ao iniciar Modbus TCP");
+    while (1);
+  }
+  modbusTCPServer.configureHoldingRegisters(0x00, 10);
+  Serial.println("Servidor Modbus TCP ativo");
 }
 
 // === Setup principal ===
@@ -130,6 +141,7 @@ void setup() {
   inicializarRTC();
   inicializarSD();
   inicializarEthernet();
+  inicializarModbus();
 
   Serial.println("Sistema iniciado.");
 }
@@ -138,17 +150,18 @@ void setup() {
 void loop() {
   lerSensor();
   lerPressao();
-  verificarPorta();  
+  verificarPorta();
   verificarAlarmes();
   alternarTela();
   gravarDados();
+  integrarDadosScada();
   delay(2000);
 }
 
+// === Leitura sensores ===
 void lerSensor() {
   temperatura = dht.readTemperature();
   umidade = dht.readHumidity();
-
   if (isnan(temperatura) || isnan(umidade)) {
     lcd.clear();
     lcd.setCursor(0, 0);
@@ -163,19 +176,20 @@ void lerPressao() {
   int leitura = analogRead(PINO_PRESSAO);
   float tensaoADC = leitura * 3.3 / 4095.0;     // Converte para tensão (dividida)
   float tensaoOriginal = tensaoADC * 2.0;       // Corrige divisor resistivo 2:1
-  pressao = -(tensaoOriginal - 2.5) * 1000.0; // Converte para Pascal e inverte sinal
+  pressao = -(tensaoOriginal - 2.5) * 1000.0;   // Converte para Pascal e inverte sinal
 }
 
+// === Verificar estado alarmes ===
 void verificarAlarmes() {
   bool alarmeTemp = (temperatura < TEMP_MIN || temperatura > TEMP_MAX);
   bool alarmeUmid = (umidade < UMID_MIN || umidade > UMID_MAX);
   bool alarmePressao = (pressao < PRESSAO_MIN || pressao > PRESSAO_MAX);
   alarmeAtivo = alarmeTemp || alarmeUmid || alarmePressao;
-
   digitalWrite(ALARME_VERDE, !alarmeAtivo);
   digitalWrite(ALARME_VERMELHO, alarmeAtivo);
 }
 
+// === Alternar valores na tela ===
 void alternarTela() {
   unsigned long agora = millis();
   if (agora - tempoUltimaTroca >= 5000) {
@@ -183,7 +197,6 @@ void alternarTela() {
     tempoUltimaTroca = agora;
     lcd.clear();
   }
-
   if (mostrarTelaHora) {
     DateTime now = rtc.now();
     char data[17], hora[17];
@@ -200,22 +213,20 @@ void alternarTela() {
   }
 }
 
-// === Verifica estado da porta ===
+// === Verificar estado da porta ===
 void verificarPorta() {
   portaFechada = digitalRead(REED_PIN) == LOW; // LOW = ímã presente = porta fechada
 }
 
+// === Gravar dados no SD Card ===
 void gravarDados() {
   static unsigned long ultimaGravacao = 0;
   const unsigned long intervaloGravacao = 30000;
   unsigned long agora = millis();
-
   if (agora - ultimaGravacao >= intervaloGravacao) {
     ultimaGravacao = agora;
     DateTime now = rtc.now();
-
     if (isnan(temperatura) || isnan(umidade)) return;
-
     char linha[128];
     snprintf(linha, sizeof(linha), "%02d/%02d/%04d %02d:%02d:%02d,%.1f,%d,%.0f,%s,%s",
             now.day(), now.month(), now.year(),
@@ -223,17 +234,31 @@ void gravarDados() {
             temperatura, (int)umidade, pressao,
             portaFechada ? "true" : "false",
             alarmeAtivo ? "true" : "false");
-
     selecionarDispositivoSPI(SD_CS);
     arquivo = SD.open("/log.csv", FILE_WRITE);
     if (arquivo) {
       arquivo.println(linha);
+      arquivo.flush();
       arquivo.close();
       Serial.println("Salvo:");
       Serial.println(linha);
-    } else {
+      } else {
       Serial.println("Erro ao escrever no SD");
     }
     digitalWrite(SD_CS, HIGH);
+  }
+}
+
+void integrarDadosScada() {
+  EthernetClient client = server.available();
+  if (client) {
+    modbusTCPServer.accept(client);
+    modbusTCPServer.poll();
+    modbusTCPServer.holdingRegisterWrite(0, (int)(temperatura * 10));
+    modbusTCPServer.holdingRegisterWrite(1, (int)(umidade * 10));
+    modbusTCPServer.holdingRegisterWrite(2, (int)(pressao));
+    modbusTCPServer.holdingRegisterWrite(3, portaFechada ? 1 : 0);
+    modbusTCPServer.holdingRegisterWrite(4, alarmeAtivo ? 1 : 0);
+    Serial.println("Dados integrados com Scada");
   }
 }
