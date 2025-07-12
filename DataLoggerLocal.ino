@@ -4,7 +4,8 @@
 #include "DHT.h"
 #include <SPI.h>
 #include <SD.h>
-#include <Ethernet.h>
+#include <Ethernet_Generic.h>
+#include <utility/w5100.h>
 
 // === Pinos e configurações ===
 #define DHTPIN 4
@@ -28,15 +29,15 @@ float TEMP_MAX = 30.0;
 float UMID_MIN = 60.0;
 float UMID_MAX = 70.0;
 float PRESSAO_MIN = 500.0;
-float PRESSAO_MAX = 700.0; 
+float PRESSAO_MAX = 700.0;
 
 // === Variáveis globais ===
 DHT dht(DHTPIN, DHTTYPE);
 SPIClass spiSD(VSPI);
+SPIClass spiETH(HSPI);
 RTC_DS1307 rtc;
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 File arquivo;
-SPIClass spiETH(HSPI);
 byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED };
 float temperatura = 0.0;
 float umidade = 0.0;
@@ -44,6 +45,14 @@ float pressao = 0.0;
 unsigned long tempoUltimaTroca = 0;
 bool mostrarTelaHora = true;
 bool portaFechada = true;
+bool alarmeAtivo = false;
+
+// === Utilitário para evitar conflito SPI ===
+void selecionarDispositivoSPI(int csAtivo) {
+  digitalWrite(SD_CS, HIGH);
+  digitalWrite(ETH_CS, HIGH);
+  digitalWrite(csAtivo, LOW);
+}
 
 // === Inicialização de módulos ===
 void inicializarLCD() {
@@ -53,7 +62,7 @@ void inicializarLCD() {
   lcd.print("Inicializando...");
   delay(2000);
   lcd.clear();
-   delay(500);
+  delay(500);
 }
 
 void inicializarRTC() {
@@ -72,42 +81,50 @@ void inicializarSD() {
     lcd.print("ERRO SD");
     while (1);
   }
-  // Verifica se o arquivo já existe
+
+  selecionarDispositivoSPI(SD_CS);
   if (!SD.exists("/log.csv")) {
-    // Arquivo não existe: criar com cabeçalho
     arquivo = SD.open("/log.csv", FILE_WRITE);
     if (arquivo) {
-      arquivo.println("DataHora,Temperatura,Umidade,Pressao,PortaFechada");
+      arquivo.println("DataHora,Temperatura,Umidade,Pressao,PortaFechada,AlarmeAtivo");
       arquivo.close();
     } else {
       Serial.println("Erro ao criar log.csv");
     }
   }
+  digitalWrite(SD_CS, HIGH);
 }
 
 void inicializarEthernet() {
-  spiETH.begin(ETH_SCK, ETH_MISO, ETH_MOSI, ETH_CS);  // Inicializa barramento HSPI
-  Ethernet.init(ETH_CS);  // Define CS para a biblioteca
+  spiETH.begin(ETH_SCK, ETH_MISO, ETH_MOSI, ETH_CS);
+  Ethernet.init(ETH_CS);
 
-  if (Ethernet.begin(mac) == 0) {
+  if (Ethernet.begin(mac, &spiETH) == 0) {
+    lcd.clear();
     lcd.print("ERRO ETHERNET");
     while (1);
   }
 
-  Serial.println("Ethernet conectada com sucesso. IP: ");
+  Serial.print("Ethernet conectada. IP: ");
   Serial.println(Ethernet.localIP());
+  digitalWrite(ETH_CS, HIGH);
 }
 
 // === Setup principal ===
 void setup() {
   Serial.begin(115200);
   Wire.begin(21, 22);
-  analogReadResolution(12);  // ADC de 12 bits (0–4095)
-  Serial.println("Inicializando sistema...");
+  analogReadResolution(12);
   dht.begin();
+
   pinMode(ALARME_VERDE, OUTPUT);
   pinMode(ALARME_VERMELHO, OUTPUT);
   pinMode(REED_PIN, INPUT_PULLUP);
+
+  pinMode(SD_CS, OUTPUT);
+  digitalWrite(SD_CS, HIGH);
+  pinMode(ETH_CS, OUTPUT);
+  digitalWrite(ETH_CS, HIGH);
 
   inicializarLCD();
   inicializarRTC();
@@ -128,7 +145,6 @@ void loop() {
   delay(2000);
 }
 
-// === Leitura do DHT11 ===
 void lerSensor() {
   temperatura = dht.readTemperature();
   umidade = dht.readHumidity();
@@ -140,11 +156,9 @@ void lerSensor() {
     lcd.setCursor(0, 1);
     lcd.print("                ");
     Serial.println("Erro na leitura do DHT11!");
-    return;
   }
 }
 
-// === Leitura do MPXV7002DP ===
 void lerPressao() {
   int leitura = analogRead(PINO_PRESSAO);
   float tensaoADC = leitura * 3.3 / 4095.0;     // Converte para tensão (dividida)
@@ -152,18 +166,16 @@ void lerPressao() {
   pressao = -(tensaoOriginal - 2.5) * 1000.0; // Converte para Pascal e inverte sinal
 }
 
-// === Verifica setpoints ===
 void verificarAlarmes() {
   bool alarmeTemp = (temperatura < TEMP_MIN || temperatura > TEMP_MAX);
   bool alarmeUmid = (umidade < UMID_MIN || umidade > UMID_MAX);
   bool alarmePressao = (pressao < PRESSAO_MIN || pressao > PRESSAO_MAX);
-  bool alarmeAtivo = alarmeTemp || alarmeUmid || alarmePressao;
+  alarmeAtivo = alarmeTemp || alarmeUmid || alarmePressao;
 
   digitalWrite(ALARME_VERDE, !alarmeAtivo);
   digitalWrite(ALARME_VERMELHO, alarmeAtivo);
 }
 
-// === Alterna entre telas a cada 5s ===
 void alternarTela() {
   unsigned long agora = millis();
   if (agora - tempoUltimaTroca >= 5000) {
@@ -177,29 +189,26 @@ void alternarTela() {
     char data[17], hora[17];
     snprintf(data, sizeof(data), "%02d/%02d/%04d      ", now.day(), now.month(), now.year());
     snprintf(hora, sizeof(hora), "%02d:%02d:%02d      ", now.hour(), now.minute(), now.second());
-
     lcd.setCursor(0, 0); lcd.print(data);
     lcd.setCursor(0, 1); lcd.print(hora);
   } else {
     char linha1[17], linha2[17];
     snprintf(linha1, sizeof(linha1), "T:%.1fC U:%d%%", temperatura, (int)umidade);
     snprintf(linha2, sizeof(linha2), "P:%dPa [%s]", (int)pressao, portaFechada ? "OK" : "PORTA");
-
     lcd.setCursor(0, 0); lcd.print(linha1);
     lcd.setCursor(0, 1); lcd.print(linha2);
   }
 }
 
 // === Verifica estado da porta ===
- void verificarPorta() {
+void verificarPorta() {
   portaFechada = digitalRead(REED_PIN) == LOW; // LOW = ímã presente = porta fechada
 }
 
-// === Grava dados no SD Card ===
 void gravarDados() {
-  unsigned long agora = millis();
   static unsigned long ultimaGravacao = 0;
   const unsigned long intervaloGravacao = 30000;
+  unsigned long agora = millis();
 
   if (agora - ultimaGravacao >= intervaloGravacao) {
     ultimaGravacao = agora;
@@ -207,16 +216,17 @@ void gravarDados() {
 
     if (isnan(temperatura) || isnan(umidade)) return;
 
-    char linha[64];
-    snprintf(linha, sizeof(linha), "%02d/%02d/%04d %02d:%02d:%02d,%.1f,%d,%.0f,%s",
-             now.day(), now.month(), now.year(),
-             now.hour(), now.minute(), now.second(),
-             temperatura, (int)umidade, pressao,
-             portaFechada ? "true" : "false");
+    char linha[128];
+    snprintf(linha, sizeof(linha), "%02d/%02d/%04d %02d:%02d:%02d,%.1f,%d,%.0f,%s,%s",
+            now.day(), now.month(), now.year(),
+            now.hour(), now.minute(), now.second(),
+            temperatura, (int)umidade, pressao,
+            portaFechada ? "true" : "false",
+            alarmeAtivo ? "true" : "false");
 
+    selecionarDispositivoSPI(SD_CS);
     arquivo = SD.open("/log.csv", FILE_WRITE);
     if (arquivo) {
-      arquivo.seek(arquivo.size());
       arquivo.println(linha);
       arquivo.close();
       Serial.println("Salvo:");
@@ -224,6 +234,6 @@ void gravarDados() {
     } else {
       Serial.println("Erro ao escrever no SD");
     }
+    digitalWrite(SD_CS, HIGH);
   }
 }
-
