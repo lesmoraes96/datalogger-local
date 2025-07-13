@@ -117,7 +117,7 @@ void inicializarModbus() {
     Serial.println("Falha ao iniciar Modbus TCP");
     while (1);
   }
-  modbusTCPServer.configureHoldingRegisters(0x00, 10);
+  modbusTCPServer.configureHoldingRegisters(0, 20);
   Serial.println("Servidor Modbus TCP ativo");
 }
 
@@ -259,6 +259,18 @@ void integrarDadosScada() {
     modbusTCPServer.holdingRegisterWrite(2, (int)(pressao));
     modbusTCPServer.holdingRegisterWrite(3, portaFechada ? 1 : 0);
     modbusTCPServer.holdingRegisterWrite(4, alarmeAtivo ? 1 : 0);
+    TEMP_MIN     = modbusTCPServer.holdingRegisterRead(10) / 10.0;
+    TEMP_MAX     = modbusTCPServer.holdingRegisterRead(11) / 10.0;
+    UMID_MIN     = modbusTCPServer.holdingRegisterRead(12) / 10.0;
+    UMID_MAX     = modbusTCPServer.holdingRegisterRead(13) / 10.0;
+    PRESSAO_MIN  = modbusTCPServer.holdingRegisterRead(14);
+    PRESSAO_MAX  = modbusTCPServer.holdingRegisterRead(15);
     Serial.println("Dados integrados com Scada");
+    Serial.print("TEMP_MIN: "); Serial.println(TEMP_MIN);
+    Serial.print("TEMP_MAX: "); Serial.println(TEMP_MAX);
+    Serial.print("UMID_MIN: "); Serial.println(UMID_MIN);
+    Serial.print("UMID_MAX: "); Serial.println(UMID_MAX);
+    Serial.print("PRESSAO_MIN: "); Serial.println(PRESSAO_MIN);
+    Serial.print("PRESSAO_MAX: "); Serial.println(PRESSAO_MAX);
   }
 }
