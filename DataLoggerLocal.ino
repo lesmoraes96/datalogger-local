@@ -7,6 +7,7 @@
 #include <Ethernet_Generic.h>
 #include <utility/w5100.h>
 #include <ArduinoModbus.h>
+#include <PCF8591.h>
 
 // === Pinos e configurações ===
 #define DHTPIN 4
@@ -22,7 +23,6 @@
 #define ETH_MOSI  23
 #define ETH_MISO  19
 #define ETH_SCK   18
-#define PINO_PRESSAO 34
 
 // === Setpoints ===
 float TEMP_MIN = 20.0;
@@ -49,6 +49,7 @@ bool portaFechada = true;
 bool alarmeAtivo = false;
 EthernetServer server(502);
 ModbusTCPServer modbusTCPServer;
+PCF8591 pcf(0x48);
 
 // === Utilitário para evitar conflito SPI ===
 void selecionarDispositivoSPI(int csAtivo) {
@@ -121,11 +122,18 @@ void inicializarModbus() {
   Serial.println("Servidor Modbus TCP ativo");
 }
 
+void inicializarADC() {
+  if (!pcf.begin()) {
+    lcd.clear();
+    lcd.print("ERRO ADC");
+    while (1);
+  }
+}
+
 // === Setup principal ===
 void setup() {
   Serial.begin(115200);
   Wire.begin(21, 22);
-  analogReadResolution(12);
   dht.begin();
 
   pinMode(ALARME_VERDE, OUTPUT);
@@ -139,6 +147,7 @@ void setup() {
 
   inicializarLCD();
   inicializarRTC();
+  inicializarADC();
   inicializarSD();
   inicializarEthernet();
   inicializarModbus();
@@ -173,10 +182,15 @@ void lerSensor() {
 }
 
 void lerPressao() {
-  int leitura = analogRead(PINO_PRESSAO);
-  float tensaoADC = leitura * 3.3 / 4095.0;     // Converte para tensão (dividida)
-  float tensaoOriginal = tensaoADC * 2.0;       // Corrige divisor resistivo 2:1
-  pressao = -(tensaoOriginal - 2.5) * 1000.0;   // Converte para Pascal e inverte sinal
+  int leitura = pcf.read(0);  // Canal AIN0 retorna 0–255 (8 bits)
+  
+  // Converte para tensão (3.3V / 255)
+  float tensao = leitura * (3.3 / 255.0);
+
+  // Cálculo para sensor MPXV7002DP (saída 0.5V a 4.5V = -2 a +2 kPa)
+  // A tensão em 2.5V corresponde a 0 Pa (pressão diferencial nula)
+  // Fator de escala: 2 kPa / 2.0V = 1 kPa/V = 1000 Pa/V
+  pressao = (tensao - 2.5) * 1000.0;
 }
 
 // === Verificar estado alarmes ===
