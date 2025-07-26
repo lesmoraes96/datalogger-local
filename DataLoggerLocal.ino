@@ -50,6 +50,7 @@ bool alarmeAtivo = false;
 EthernetServer server(502);
 ModbusTCPServer modbusTCPServer;
 PCF8591 pcf(0x48);
+EthernetClient client;
 
 // === Utilitário para evitar conflito SPI ===
 void selecionarDispositivoSPI(int csAtivo) {
@@ -151,6 +152,8 @@ void setup() {
   inicializarSD();
   inicializarEthernet();
   inicializarModbus();
+
+  fazerRequisicaoHTTP();
 
   Serial.println("Sistema iniciado.");
 }
@@ -263,8 +266,9 @@ void gravarDados() {
   }
 }
 
+// === Integrar Dados com Scada ===
 void integrarDadosScada() {
-  EthernetClient client = server.available();
+  client = server.available();
   if (client) {
     modbusTCPServer.accept(client);
     modbusTCPServer.poll();
@@ -287,4 +291,36 @@ void integrarDadosScada() {
     Serial.print("PRESSAO_MIN: "); Serial.println(PRESSAO_MIN);
     Serial.print("PRESSAO_MAX: "); Serial.println(PRESSAO_MAX);
   }
+}
+
+// === Enviar Requisicao HTTP ===
+void fazerRequisicaoHTTP() {
+  const char* host = "jsonplaceholder.typicode.com";
+  const int porta = 80;
+
+  Serial.print("Conectando a ");
+  Serial.println(host);
+
+  selecionarDispositivoSPI(ETH_CS);
+
+  if (client.connect(host, porta)) {
+    Serial.println("Conectado");
+
+    client.println("GET /todos/1 HTTP/1.1");
+    client.print("Host: ");
+    client.println(host);
+    client.println("Connection: close");
+    client.println();
+
+    while(client.connected()) {
+      while(client.available()) {
+        Serial.write(client.read());
+      }
+    }
+    client.stop();
+    Serial.println("\nConexão encerrada");
+  } else {
+    Serial.println("Falha ao conectar");
+  }
+  digitalWrite(ETH_CS, HIGH);
 }
