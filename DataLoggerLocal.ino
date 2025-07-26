@@ -249,7 +249,7 @@ void gravarDados() {
             portaFechada ? "true" : "false",
             alarmeAtivo ? "true" : "false");
     selecionarDispositivoSPI(SD_CS);
-    arquivo = SD.open("/log.csv", FILE_WRITE);
+    arquivo = SD.open("/log.csv", FILE_APPEND);
     if (arquivo) {
       arquivo.println(linha);
       arquivo.flush();
