@@ -8,6 +8,7 @@
 #include <utility/w5100.h>
 #include <ArduinoModbus.h>
 #include <PCF8591.h>
+#include <WebServer.h>
 
 // === Pinos e configurações ===
 #define DHTPIN 4
@@ -47,10 +48,13 @@ unsigned long tempoUltimaTroca = 0;
 bool mostrarTelaHora = true;
 bool portaFechada = true;
 bool alarmeAtivo = false;
-EthernetServer server(502);
+EthernetClient clientModbus;
+EthernetServer serverModbus(502);
 ModbusTCPServer modbusTCPServer;
 PCF8591 pcf(0x48);
-EthernetClient client;
+EthernetClient clientHttp;
+EthernetClient clientHttpHost;
+EthernetServer serverHttp(80);
 
 // === Utilitário para evitar conflito SPI ===
 void selecionarDispositivoSPI(int csAtivo) {
@@ -113,10 +117,10 @@ void inicializarEthernet() {
   digitalWrite(ETH_CS, HIGH);
 }
 
-void inicializarModbus() {
-  server.begin();
+void inicializarServerModbus() {
+  serverModbus.begin();
   if (!modbusTCPServer.begin()) {
-    Serial.println("Falha ao iniciar Modbus TCP");
+    Serial.println("Falha ao iniciar servidor Modbus TCP");
     while (1);
   }
   modbusTCPServer.configureHoldingRegisters(0, 20);
@@ -131,11 +135,16 @@ void inicializarADC() {
   }
 }
 
+void inicializarServerHttp() {
+  serverHttp.begin();
+}
+
 // === Setup principal ===
 void setup() {
   Serial.begin(115200);
   Wire.begin(21, 22);
   dht.begin();
+  pcf.begin();
 
   pinMode(ALARME_VERDE, OUTPUT);
   pinMode(ALARME_VERMELHO, OUTPUT);
@@ -151,7 +160,8 @@ void setup() {
   inicializarADC();
   inicializarSD();
   inicializarEthernet();
-  inicializarModbus();
+  inicializarServerModbus();
+  inicializarServerHttp();
 
   fazerRequisicaoHTTP();
 
@@ -167,6 +177,7 @@ void loop() {
   alternarTela();
   gravarDados();
   integrarDadosScada();
+  integrarDadosServerHttp();
   delay(2000);
 }
 
@@ -268,9 +279,9 @@ void gravarDados() {
 
 // === Integrar Dados com Scada ===
 void integrarDadosScada() {
-  client = server.available();
-  if (client) {
-    modbusTCPServer.accept(client);
+  clientModbus = serverModbus.available();
+  if (clientModbus) {
+    modbusTCPServer.accept(clientModbus);
     modbusTCPServer.poll();
     modbusTCPServer.holdingRegisterWrite(0, (int)(temperatura * 10));
     modbusTCPServer.holdingRegisterWrite(1, (int)(umidade * 10));
@@ -303,24 +314,70 @@ void fazerRequisicaoHTTP() {
 
   selecionarDispositivoSPI(ETH_CS);
 
-  if (client.connect(host, porta)) {
+  if (clientHttp.connect(host, porta)) {
     Serial.println("Conectado");
 
-    client.println("GET /todos/1 HTTP/1.1");
-    client.print("Host: ");
-    client.println(host);
-    client.println("Connection: close");
-    client.println();
+    clientHttp.println("GET /todos/1 HTTP/1.1");
+    clientHttp.print("Host: ");
+    clientHttp.println(host);
+    clientHttp.println("Connection: close");
+    clientHttp.println();
 
-    while(client.connected()) {
-      while(client.available()) {
-        Serial.write(client.read());
+    while(clientHttp.connected()) {
+      while(clientHttp.available()) {
+        Serial.write(clientHttp.read());
       }
     }
-    client.stop();
+    clientHttp.stop();
     Serial.println("\nConexão encerrada");
   } else {
     Serial.println("Falha ao conectar");
   }
   digitalWrite(ETH_CS, HIGH);
+}
+
+// === Rota para dados JSON ===
+void integrarDadosServerHttp() {
+  clientHttpHost = serverHttp.available();
+  if (clientHttpHost) {
+    Serial.println("Cliente conectado");
+
+    // Espera por dados do cliente
+    while (clientHttpHost.connected() && !clientHttpHost.available()) {
+      delay(1);
+    }
+
+    String req = clientHttpHost.readStringUntil('\r');
+    clientHttpHost.readStringUntil('\n');
+    Serial.println("Requisição: " + req);
+
+    if (req.indexOf("GET /dados") >= 0) {
+      String json = "{";
+      json += "\"temperatura\":" + String(temperatura, 1) + ",";
+      json += "\"umidade\":" + String(umidade, 1) + ",";
+      json += "\"pressao\":" + String(pressao, 0) + ",";
+      json += "\"portaFechada\":" + String(portaFechada ? "true" : "false") + ",";
+      json += "\"alarmeAtivo\":" + String(alarmeAtivo ? "true" : "false");
+      json += "}";
+
+      clientHttpHost.println("HTTP/1.1 200 OK");
+      clientHttpHost.println("Content-Type: application/json");
+      clientHttpHost.println("Connection: close");
+      clientHttpHost.println();
+      clientHttpHost.println(json);
+
+      Serial.println("JSON enviado:");
+      Serial.println(json);
+    } else {
+      clientHttpHost.println("HTTP/1.1 404 Not Found");
+      clientHttpHost.println("Content-Type: text/plain");
+      clientHttpHost.println("Connection: close");
+      clientHttpHost.println();
+      clientHttpHost.println("Rota não encontrada.");
+    }
+
+    delay(1);
+    clientHttpHost.stop();
+    Serial.println("Cliente desconectado\n");
+  }
 }
