@@ -1,7 +1,7 @@
 from pymodbus.client import ModbusTcpClient
 
 # Endereço IP do ESP32 e porta Modbus TCP
-MODBUS_IP = '192.168.15.16'
+MODBUS_IP = '192.168.15.5'
 MODBUS_PORT = 502
 
 # Conectar ao servidor Modbus TCP
