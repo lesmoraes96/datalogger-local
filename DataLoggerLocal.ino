@@ -4,8 +4,6 @@
 #include "DHT.h"
 #include <SPI.h>
 #include <SD.h>
-#include <Ethernet_Generic.h>
-#include <utility/w5100.h>
 #include <ArduinoModbus.h>
 #include <PCF8591.h>
 #include <WebServer.h>
@@ -22,10 +20,6 @@
 #define SD_MOSI 26
 #define SD_SCK  25
 #define SD_CS   17
-#define ETH_CS    5
-#define ETH_MOSI  23
-#define ETH_MISO  19
-#define ETH_SCK   18
 
 // === Setpoints ===
 float TEMP_MIN = 20.0;
@@ -38,7 +32,6 @@ float PRESSAO_MAX = 700.0;
 // === Variáveis globais ===
 DHT dht(DHTPIN, DHTTYPE);
 SPIClass spiSD(VSPI);
-SPIClass spiETH(HSPI);
 RTC_DS1307 rtc;
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 File arquivo;
@@ -62,13 +55,6 @@ const char* ssid = "VIVOFIBRA-3F5A";
 const char* password = "97d1f23f5a";
 const char* apiGatewayHost = "91xrkdweb2.execute-api.sa-east-1.amazonaws.com";
 const int httpsPort = 443;
-
-// === Utilitário para evitar conflito SPI ===
-void selecionarDispositivoSPI(int csAtivo) {
-  digitalWrite(SD_CS, HIGH);
-  digitalWrite(ETH_CS, HIGH);
-  digitalWrite(csAtivo, LOW);
-}
 
 // === Inicialização de módulos ===
 void inicializarLCD() {
@@ -97,7 +83,6 @@ void inicializarSD() {
     lcd.print("ERRO SD");
     while (1);
   }
-  selecionarDispositivoSPI(SD_CS);
   if (!SD.exists("/log.csv")) {
     arquivo = SD.open("/log.csv", FILE_WRITE);
     if (arquivo) {
@@ -109,19 +94,6 @@ void inicializarSD() {
     }
   }
   digitalWrite(SD_CS, HIGH);
-}
-
-void inicializarEthernet() {
-  spiETH.begin(ETH_SCK, ETH_MISO, ETH_MOSI, ETH_CS);
-  Ethernet.init(ETH_CS);
-  if (Ethernet.begin(mac, &spiETH) == 0) {
-    lcd.clear();
-    lcd.print("ERRO ETHERNET");
-    while (1);
-  }
-  Serial.print("Ethernet IP: ");
-  Serial.println(Ethernet.localIP());
-  digitalWrite(ETH_CS, HIGH);
 }
 
 void inicializarWifi() {
@@ -174,14 +146,11 @@ void setup() {
 
   pinMode(SD_CS, OUTPUT);
   digitalWrite(SD_CS, HIGH);
-  pinMode(ETH_CS, OUTPUT);
-  digitalWrite(ETH_CS, HIGH);
 
   inicializarLCD();
   inicializarRTC();
   inicializarADC();
   inicializarSD();
-  inicializarEthernet();
   inicializarWifi();
   inicializarServerModbus();
   inicializarServerHttp();
@@ -278,7 +247,6 @@ void salvarMedicoesCsv() {
            portaFechada ? "true" : "false",
            alarmeAtivo ? "true" : "false");
 
-  selecionarDispositivoSPI(SD_CS);
   arquivo = SD.open("/log.csv", FILE_APPEND);
   if (arquivo) {
     arquivo.println(linha);
