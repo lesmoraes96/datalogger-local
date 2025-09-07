@@ -50,8 +50,9 @@ unsigned long tempoUltimaTroca = 0;
 bool mostrarTelaHora = true;
 bool portaFechada = true;
 bool alarmeAtivo = false;
-EthernetClient clientModbus;
-EthernetServer serverModbus(502);
+WiFiClient clientModbus;
+bool clientModbusConectado = false;
+WiFiServer serverModbus(502);
 ModbusTCPServer modbusTCPServer;
 PCF8591 pcf(0x48);
 WiFiClientSecure clientHttps;
@@ -349,28 +350,47 @@ void gravarDados() {
 
 // === Integrar Dados com Scada ===
 void integrarDadosScada() {
-  clientModbus = serverModbus.available();
-  if (clientModbus) {
-    modbusTCPServer.accept(clientModbus);
-    modbusTCPServer.poll();
-    modbusTCPServer.holdingRegisterWrite(0, (int)(temperatura * 10));
-    modbusTCPServer.holdingRegisterWrite(1, (int)(umidade * 10));
-    modbusTCPServer.holdingRegisterWrite(2, (int)(pressao));
-    modbusTCPServer.holdingRegisterWrite(3, portaFechada ? 1 : 0);
-    modbusTCPServer.holdingRegisterWrite(4, alarmeAtivo ? 1 : 0);
-    TEMP_MIN     = modbusTCPServer.holdingRegisterRead(10) / 10.0;
-    TEMP_MAX     = modbusTCPServer.holdingRegisterRead(11) / 10.0;
-    UMID_MIN     = modbusTCPServer.holdingRegisterRead(12) / 10.0;
-    UMID_MAX     = modbusTCPServer.holdingRegisterRead(13) / 10.0;
-    PRESSAO_MIN  = modbusTCPServer.holdingRegisterRead(14);
-    PRESSAO_MAX  = modbusTCPServer.holdingRegisterRead(15);
-    Serial.println("Dados integrados com Scada");
-    Serial.print("TEMP_MIN: "); Serial.println(TEMP_MIN);
-    Serial.print("TEMP_MAX: "); Serial.println(TEMP_MAX);
-    Serial.print("UMID_MIN: "); Serial.println(UMID_MIN);
-    Serial.print("UMID_MAX: "); Serial.println(UMID_MAX);
-    Serial.print("PRESSAO_MIN: "); Serial.println(PRESSAO_MIN);
-    Serial.print("PRESSAO_MAX: "); Serial.println(PRESSAO_MAX);
+  // Se não há cliente ativo, verifica se alguém quer conectar
+  if (!clientModbusConectado) {
+    WiFiClient novoCliente = serverModbus.available();
+    if (novoCliente) {
+      clientModbus = novoCliente;
+      modbusTCPServer.accept(clientModbus);
+      clientModbusConectado = true;
+      Serial.println("Cliente Modbus conectado");
+    }
+  } 
+  // Se já há cliente, mantém poll e verifica conexão
+  else {
+    if (clientModbus.connected()) {
+      modbusTCPServer.poll();
+
+      // Atualiza registradores de sensores
+      modbusTCPServer.holdingRegisterWrite(0, (int)(temperatura * 10));
+      modbusTCPServer.holdingRegisterWrite(1, (int)(umidade * 10));
+      modbusTCPServer.holdingRegisterWrite(2, (int)(pressao));
+      modbusTCPServer.holdingRegisterWrite(3, portaFechada ? 1 : 0);
+      modbusTCPServer.holdingRegisterWrite(4, alarmeAtivo ? 1 : 0);
+
+      // Lê setpoints atualizados pelo cliente
+      TEMP_MIN     = modbusTCPServer.holdingRegisterRead(10) / 10.0;
+      TEMP_MAX     = modbusTCPServer.holdingRegisterRead(11) / 10.0;
+      UMID_MIN     = modbusTCPServer.holdingRegisterRead(12) / 10.0;
+      UMID_MAX     = modbusTCPServer.holdingRegisterRead(13) / 10.0;
+      PRESSAO_MIN  = modbusTCPServer.holdingRegisterRead(14);
+      PRESSAO_MAX  = modbusTCPServer.holdingRegisterRead(15);
+      Serial.println("Dados integrados com Scada");
+      Serial.print("TEMP_MIN: "); Serial.println(TEMP_MIN);
+      Serial.print("TEMP_MAX: "); Serial.println(TEMP_MAX);
+      Serial.print("UMID_MIN: "); Serial.println(UMID_MIN);
+      Serial.print("UMID_MAX: "); Serial.println(UMID_MAX);
+      Serial.print("PRESSAO_MIN: "); Serial.println(PRESSAO_MIN);
+      Serial.print("PRESSAO_MAX: "); Serial.println(PRESSAO_MAX);
+    } else {
+      // Cliente desconectou, espera nova conexão
+      clientModbusConectado = false;
+      Serial.println("Cliente Modbus desconectado");
+    }
   }
 }
 
