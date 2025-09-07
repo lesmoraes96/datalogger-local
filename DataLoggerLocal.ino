@@ -9,6 +9,8 @@
 #include <ArduinoModbus.h>
 #include <PCF8591.h>
 #include <WebServer.h>
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
 
 // === Pinos e configurações ===
 #define DHTPIN 4
@@ -52,9 +54,11 @@ EthernetClient clientModbus;
 EthernetServer serverModbus(502);
 ModbusTCPServer modbusTCPServer;
 PCF8591 pcf(0x48);
-EthernetClient clientHttp;
-EthernetClient clientHttpHost;
-EthernetServer serverHttp(80);
+WiFiClient clientHttp;
+WiFiClient clientHttpHost;
+WiFiServer serverHttp(80);
+const char* ssid = "VIVOFIBRA-3F5A";
+const char* password = "97d1f23f5a";
 
 // === Utilitário para evitar conflito SPI ===
 void selecionarDispositivoSPI(int csAtivo) {
@@ -117,6 +121,21 @@ void inicializarEthernet() {
   digitalWrite(ETH_CS, HIGH);
 }
 
+void inicializarWifi() {
+  Serial.print("Conectando ao WiFi: ");
+  Serial.println(ssid);
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println();
+  Serial.print("WiFi conectado. IP: ");
+  Serial.println(WiFi.localIP());
+}
+
 void inicializarServerModbus() {
   serverModbus.begin();
   if (!modbusTCPServer.begin()) {
@@ -160,10 +179,9 @@ void setup() {
   inicializarADC();
   inicializarSD();
   inicializarEthernet();
+  inicializarWifi();
   inicializarServerModbus();
   inicializarServerHttp();
-
-  fazerRequisicaoHTTP();
 
   Serial.println("Sistema iniciado.");
 }
@@ -273,6 +291,7 @@ void gravarDados() {
       } else {
       Serial.println("Erro ao escrever no SD");
     }
+    salvarMedicoesHttp(temperatura, umidade, pressao, portaFechada, alarmeAtivo);
     digitalWrite(SD_CS, HIGH);
   }
 }
@@ -304,36 +323,51 @@ void integrarDadosScada() {
   }
 }
 
-// === Enviar Requisicao HTTP ===
-void fazerRequisicaoHTTP() {
-  const char* host = "jsonplaceholder.typicode.com";
-  const int porta = 80;
-
-  Serial.print("Conectando a ");
-  Serial.println(host);
-
-  selecionarDispositivoSPI(ETH_CS);
-
-  if (clientHttp.connect(host, porta)) {
-    Serial.println("Conectado");
-
-    clientHttp.println("GET /todos/1 HTTP/1.1");
-    clientHttp.print("Host: ");
-    clientHttp.println(host);
-    clientHttp.println("Connection: close");
-    clientHttp.println();
-
-    while(clientHttp.connected()) {
-      while(clientHttp.available()) {
-        Serial.write(clientHttp.read());
-      }
-    }
-    clientHttp.stop();
-    Serial.println("\nConexão encerrada");
-  } else {
-    Serial.println("Falha ao conectar");
+// === Salvar Medicoes HTTP ===
+void salvarMedicoesHttp(float temperatura, float umidade, float pressao, bool portaFechada, bool alarmeAtivo) {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi desconectado, não foi possível enviar dados.");
+    return;
   }
-  digitalWrite(ETH_CS, HIGH);
+
+  WiFiClientSecure client;
+  client.setInsecure(); // Ignora verificação SSL (apenas teste)
+  
+  const char* host = "91xrkdweb2.execute-api.sa-east-1.amazonaws.com";
+  const int httpsPort = 443;
+
+  if (!client.connect(host, httpsPort)) {
+    Serial.println("Falha ao conectar HTTPS");
+    return;
+  }
+
+  // Monta JSON
+  String json = "{";
+  json += "\"datahora\":\"" + String(rtc.now().timestamp()) + "\",";
+  json += "\"temperatura\":" + String(temperatura, 1) + ",";
+  json += "\"umidade\":" + String(umidade, 1) + ",";
+  json += "\"pressao\":" + String(pressao, 0) + ",";
+  json += "\"estado_porta\":" + String(portaFechada ? 1 : 0) + ",";
+  json += "\"estado_alarme\":" + String(alarmeAtivo ? 1 : 0);
+  json += "}";
+
+  // Envia requisição HTTP POST
+  client.println("POST /PROD/medicoes HTTP/1.1");
+  client.println("Host: 91xrkdweb2.execute-api.sa-east-1.amazonaws.com");
+  client.println("Content-Type: application/json");
+  client.print("Content-Length: "); client.println(json.length());
+  client.println("Connection: close");
+  client.println();
+  client.println(json);
+
+  // Lê resposta
+  while(client.connected()) {
+    while(client.available()) {
+      String line = client.readStringUntil('\n');
+      Serial.println(line);
+    }
+  }
+  client.stop();
 }
 
 // === Rota para dados JSON ===
