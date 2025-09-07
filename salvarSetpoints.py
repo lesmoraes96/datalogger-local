@@ -23,6 +23,7 @@ def lambda_handler(event, context):
 
     try:
         with conn.cursor() as cur:
+            cur.execute("UPDATE tabela_setpoints SET ativo = FALSE")
             sql = """
                 INSERT INTO tabela_setpoints (datahora, temp_min, temp_max, umid_min, umid_max, pressao_min, pressao_max, ativo)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
