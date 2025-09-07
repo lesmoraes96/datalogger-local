@@ -54,11 +54,13 @@ EthernetClient clientModbus;
 EthernetServer serverModbus(502);
 ModbusTCPServer modbusTCPServer;
 PCF8591 pcf(0x48);
-WiFiClient clientHttp;
+WiFiClientSecure clientHttps;
 WiFiClient clientHttpHost;
 WiFiServer serverHttp(80);
 const char* ssid = "VIVOFIBRA-3F5A";
 const char* password = "97d1f23f5a";
+const char* apiGatewayHost = "91xrkdweb2.execute-api.sa-east-1.amazonaws.com";
+const int httpsPort = 443;
 
 // === Utilitário para evitar conflito SPI ===
 void selecionarDispositivoSPI(int csAtivo) {
@@ -264,35 +266,84 @@ void verificarPorta() {
   portaFechada = digitalRead(REED_PIN) == LOW; // LOW = ímã presente = porta fechada
 }
 
-// === Gravar dados no SD Card ===
+// === Salvar Medicoes Cartao SD ===
+void salvarMedicoesCsv() {
+  DateTime now = rtc.now();
+  char linha[128];
+  snprintf(linha, sizeof(linha), "%02d/%02d/%04d %02d:%02d:%02d,%.1f,%d,%.0f,%s,%s",
+           now.day(), now.month(), now.year(),
+           now.hour(), now.minute(), now.second(),
+           temperatura, (int)umidade, pressao,
+           portaFechada ? "true" : "false",
+           alarmeAtivo ? "true" : "false");
+
+  selecionarDispositivoSPI(SD_CS);
+  arquivo = SD.open("/log.csv", FILE_APPEND);
+  if (arquivo) {
+    arquivo.println(linha);
+    arquivo.flush();
+    arquivo.close();
+    Serial.println("Salvo no CSV:");
+    Serial.println(linha);
+  } else {
+    Serial.println("Erro ao escrever no SD");
+  }
+  digitalWrite(SD_CS, HIGH);
+}
+
+// === Salvar Medicoes no Endpoint HTTP ===
+void salvarMedicoesHttp() {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi não conectado. Falha ao enviar dados HTTP");
+    return;
+  }
+
+  WiFiClientSecure client;
+  client.setInsecure();
+
+  if (!client.connect(apiGatewayHost, httpsPort)) {
+    Serial.println("Falha ao conectar HTTPS");
+    return;
+  }
+
+  DateTime now = rtc.now();
+  String json = "{";
+  json += "\"datahora\":\"" + String(now.year()) + "-" + String(now.month()) + "-" + String(now.day()) +
+          " " + String(now.hour()) + ":" + String(now.minute()) + ":" + String(now.second()) + "\",";
+  json += "\"temperatura\":" + String(temperatura, 1) + ",";
+  json += "\"umidade\":" + String(umidade, 1) + ",";
+  json += "\"pressao\":" + String(pressao) + ",";
+  json += "\"estado_porta\":" + String(portaFechada ? 1 : 0) + ",";
+  json += "\"estado_alarme\":" + String(alarmeAtivo ? 1 : 0);
+  json += "}";
+
+  client.println("POST /PROD/medicoes HTTP/1.1");
+  client.println("Host: 91xrkdweb2.execute-api.sa-east-1.amazonaws.com");
+  client.println("Content-Type: application/json");
+  client.print("Content-Length: "); client.println(json.length());
+  client.println("Connection: close");
+  client.println();
+  client.println(json);
+
+  while (client.connected()) {
+    while (client.available()) {
+      String line = client.readStringUntil('\n');
+      Serial.println(line);
+    }
+  }
+  client.stop();
+  Serial.println("Dados enviados via HTTP");
+}
+
+// === Gravar Dados de Medicoes ===
 void gravarDados() {
   static unsigned long ultimaGravacao = 0;
-  const unsigned long intervaloGravacao = 30000;
+  const unsigned long intervaloGravacao = 300000;
   unsigned long agora = millis();
   if (agora - ultimaGravacao >= intervaloGravacao) {
     ultimaGravacao = agora;
-    DateTime now = rtc.now();
-    if (isnan(temperatura) || isnan(umidade)) return;
-    char linha[128];
-    snprintf(linha, sizeof(linha), "%02d/%02d/%04d %02d:%02d:%02d,%.1f,%d,%.0f,%s,%s",
-            now.day(), now.month(), now.year(),
-            now.hour(), now.minute(), now.second(),
-            temperatura, (int)umidade, pressao,
-            portaFechada ? "true" : "false",
-            alarmeAtivo ? "true" : "false");
-    selecionarDispositivoSPI(SD_CS);
-    arquivo = SD.open("/log.csv", FILE_APPEND);
-    if (arquivo) {
-      arquivo.println(linha);
-      arquivo.flush();
-      arquivo.close();
-      Serial.println("Salvo:");
-      Serial.println(linha);
-      } else {
-      Serial.println("Erro ao escrever no SD");
-    }
-    salvarMedicoesHttp(temperatura, umidade, pressao, portaFechada, alarmeAtivo);
-    digitalWrite(SD_CS, HIGH);
+    salvarMedicoesCsv();
+    salvarMedicoesHttp();
   }
 }
 
@@ -321,53 +372,6 @@ void integrarDadosScada() {
     Serial.print("PRESSAO_MIN: "); Serial.println(PRESSAO_MIN);
     Serial.print("PRESSAO_MAX: "); Serial.println(PRESSAO_MAX);
   }
-}
-
-// === Salvar Medicoes HTTP ===
-void salvarMedicoesHttp(float temperatura, float umidade, float pressao, bool portaFechada, bool alarmeAtivo) {
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("WiFi desconectado, não foi possível enviar dados.");
-    return;
-  }
-
-  WiFiClientSecure client;
-  client.setInsecure(); // Ignora verificação SSL (apenas teste)
-  
-  const char* host = "91xrkdweb2.execute-api.sa-east-1.amazonaws.com";
-  const int httpsPort = 443;
-
-  if (!client.connect(host, httpsPort)) {
-    Serial.println("Falha ao conectar HTTPS");
-    return;
-  }
-
-  // Monta JSON
-  String json = "{";
-  json += "\"datahora\":\"" + String(rtc.now().timestamp()) + "\",";
-  json += "\"temperatura\":" + String(temperatura, 1) + ",";
-  json += "\"umidade\":" + String(umidade, 1) + ",";
-  json += "\"pressao\":" + String(pressao, 0) + ",";
-  json += "\"estado_porta\":" + String(portaFechada ? 1 : 0) + ",";
-  json += "\"estado_alarme\":" + String(alarmeAtivo ? 1 : 0);
-  json += "}";
-
-  // Envia requisição HTTP POST
-  client.println("POST /PROD/medicoes HTTP/1.1");
-  client.println("Host: 91xrkdweb2.execute-api.sa-east-1.amazonaws.com");
-  client.println("Content-Type: application/json");
-  client.print("Content-Length: "); client.println(json.length());
-  client.println("Connection: close");
-  client.println();
-  client.println(json);
-
-  // Lê resposta
-  while(client.connected()) {
-    while(client.available()) {
-      String line = client.readStringUntil('\n');
-      Serial.println(line);
-    }
-  }
-  client.stop();
 }
 
 // === Rota para dados JSON ===
