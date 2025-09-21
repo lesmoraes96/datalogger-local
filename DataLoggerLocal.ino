@@ -195,6 +195,9 @@ void lerPressao() {
   // A tensão em 2.5V corresponde a 0 Pa (pressão diferencial nula)
   // Fator de escala: 2 kPa / 2.0V = 1 kPa/V = 1000 Pa/V
   pressao = (tensao - 2.5) * 1000.0;
+
+  // Limita para 2 casas decimais
+  pressao = round(pressao * 100.0) / 100.0;
 }
 
 // === Verificar estado alarmes ===
@@ -336,9 +339,17 @@ void integrarDadosScada() {
       // Atualiza registradores de sensores
       modbusTCPServer.holdingRegisterWrite(0, (int)(temperatura * 10));
       modbusTCPServer.holdingRegisterWrite(1, (int)(umidade * 10));
-      modbusTCPServer.holdingRegisterWrite(2, (int)(pressao));
-      modbusTCPServer.holdingRegisterWrite(3, portaFechada ? 1 : 0);
-      modbusTCPServer.holdingRegisterWrite(4, alarmeAtivo ? 1 : 0);
+
+      // pressão em 32 bits (2 registradores)
+      int32_t pressaoInt = (int32_t)(pressao * 100); 
+      uint16_t pressaoLow  = (uint16_t)(pressaoInt & 0xFFFF);
+      uint16_t pressaoHigh = (uint16_t)((pressaoInt >> 16) & 0xFFFF);
+      modbusTCPServer.holdingRegisterWrite(2, pressaoLow);
+      modbusTCPServer.holdingRegisterWrite(3, pressaoHigh);
+
+
+      modbusTCPServer.holdingRegisterWrite(4, portaFechada ? 1 : 0);
+      modbusTCPServer.holdingRegisterWrite(5, alarmeAtivo ? 1 : 0);
 
       // Lê setpoints atualizados pelo cliente
       TEMP_MIN     = modbusTCPServer.holdingRegisterRead(10) / 10.0;

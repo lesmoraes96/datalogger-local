@@ -1,7 +1,7 @@
 from pymodbus.client import ModbusTcpClient
 
 # Endereço IP do ESP32 e porta Modbus TCP
-MODBUS_IP = '192.168.15.5'
+MODBUS_IP = '192.168.15.22'
 MODBUS_PORT = 502
 
 # Conectar ao servidor Modbus TCP
@@ -19,7 +19,11 @@ else:
     registros = rr.registers
     print(f"Temperatura:     {registros[0] / 10:.1f} °C")
     print(f"Umidade:         {registros[1] / 10:.1f} %")
-    print(f"Pressão:         {registros[2]} Pa")
+    pressao_int = (registros[3] << 16) | registros[2]  # parte alta << 16 + baixa
+    if pressao_int >= 0x80000000:
+        pressao_int -= 0x100000000  # signed int32
+    pressao = pressao_int / 100.0
+    print(f"Pressão:         {pressao:.2f} Pa")
     print(f"Porta fechada:   {'Sim' if registros[3] == 1 else 'Não'}")
     print(f"Alarme ativo:    {'Sim' if registros[4] == 1 else 'Não'}")
 
