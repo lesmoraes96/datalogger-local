@@ -115,6 +115,7 @@ void inicializarServerModbus() {
   serverModbus.begin();
   if (!modbusTCPServer.begin()) {
     Serial.println("Falha ao iniciar servidor Modbus TCP");
+    lcd.print("ERRO MODBUS");
     while (1);
   }
   modbusTCPServer.configureHoldingRegisters(0, 20);
@@ -176,17 +177,19 @@ void lerSensor() {
   temperatura = dht.readTemperature();
   umidade = dht.readHumidity();
   if (isnan(temperatura) || isnan(umidade)) {
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("Erro sensor DHT");
-    lcd.setCursor(0, 1);
-    lcd.print("                ");
     Serial.println("Erro na leitura do DHT11!");
+    salvarLogsHttp("Erro na leitura do DHT11!", "ERROR");
   }
 }
 
 void lerPressao() {
   int leitura = pcf.read(0);  // Canal AIN0 retorna 0–255 (8 bits)
+
+  if (leitura < 0 || leitura > 255) {
+  Serial.println("Erro na leitura do ADC (PCF8591)!");
+  salvarLogsHttp("Erro na leitura do ADC (PCF8591)!", "ERROR");
+  return;
+}
   
   // Converte para tensão (3.3V / 255)
   float tensao = leitura * (3.3 / 255.0);
@@ -255,9 +258,11 @@ void salvarMedicoesCsv() {
     arquivo.println(linha);
     arquivo.flush();
     arquivo.close();
-    Serial.println("Salvo no CSV:");
+    salvarLogsHttp("Medicoes salvas no CSV", "INFO");
+    Serial.println("Medicoes escritas no CSV:");
     Serial.println(linha);
   } else {
+    salvarLogsHttp("Erro ao escrever no SD", "ERROR");
     Serial.println("Erro ao escrever no SD");
   }
   digitalWrite(SD_CS, HIGH);
@@ -284,7 +289,7 @@ void salvarMedicoesHttp() {
           " " + String(now.hour()) + ":" + String(now.minute()) + ":" + String(now.second()) + "\",";
   json += "\"temperatura\":" + String(temperatura, 1) + ",";
   json += "\"umidade\":" + String(umidade, 1) + ",";
-  json += "\"pressao\":" + String(pressao) + ",";
+  json += "\"pressao\":" + String(pressao, 2) + ",";
   json += "\"estado_porta\":" + String(portaFechada ? 1 : 0) + ",";
   json += "\"estado_alarme\":" + String(alarmeAtivo ? 1 : 0);
   json += "}";
@@ -304,7 +309,8 @@ void salvarMedicoesHttp() {
     }
   }
   client.stop();
-  Serial.println("Dados enviados via HTTP");
+  Serial.println("Medicoes enviados via HTTP");
+  salvarLogsHttp("Medicoes enviados via HTTP", "INFO");
 }
 
 // === Gravar Dados de Medicoes ===
@@ -329,6 +335,7 @@ void integrarDadosScada() {
       modbusTCPServer.accept(clientModbus);
       clientModbusConectado = true;
       Serial.println("Cliente Modbus conectado");
+      salvarLogsHttp("Cliente Modbus conectado", "INFO");
     }
   } 
   // Se já há cliente, mantém poll e verifica conexão
@@ -365,10 +372,14 @@ void integrarDadosScada() {
       Serial.print("UMID_MAX: "); Serial.println(UMID_MAX);
       Serial.print("PRESSAO_MIN: "); Serial.println(PRESSAO_MIN);
       Serial.print("PRESSAO_MAX: "); Serial.println(PRESSAO_MAX);
+      salvarLogsHttp("Dados integrados com Scada", "INFO");
+
+      salvarSetpointsHttp();
     } else {
       // Cliente desconectou, espera nova conexão
       clientModbusConectado = false;
       Serial.println("Cliente Modbus desconectado");
+      salvarLogsHttp("Cliente Modbus desconectado", "INFO");
     }
   }
 }
@@ -377,7 +388,8 @@ void integrarDadosScada() {
 void integrarDadosServerHttp() {
   clientHttpHost = serverHttp.available();
   if (clientHttpHost) {
-    Serial.println("Cliente conectado");
+    Serial.println("Cliente Http conectado");
+    salvarLogsHttp("Cliente Http conectado", "INFO");
 
     // Espera por dados do cliente
     while (clientHttpHost.connected() && !clientHttpHost.available()) {
@@ -405,16 +417,123 @@ void integrarDadosServerHttp() {
 
       Serial.println("JSON enviado:");
       Serial.println(json);
+      salvarLogsHttp("JSON enviado", "INFO");
     } else {
       clientHttpHost.println("HTTP/1.1 404 Not Found");
       clientHttpHost.println("Content-Type: text/plain");
       clientHttpHost.println("Connection: close");
       clientHttpHost.println();
       clientHttpHost.println("Rota não encontrada.");
+      salvarLogsHttp("Rota não encontrada.", "WARN");
     }
 
     delay(1);
     clientHttpHost.stop();
-    Serial.println("Cliente desconectado\n");
+    Serial.println("Cliente Http desconectado\n");
   }
+}
+
+// === Salvar Setpoints no Endpoint HTTP ===
+void salvarSetpointsHttp() {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi não conectado. Falha ao enviar setpoints HTTP");
+    return;
+  }
+
+  WiFiClientSecure client;
+  client.setInsecure();
+
+  if (!client.connect(apiGatewayHost, httpsPort)) {
+    Serial.println("Falha ao conectar HTTPS");
+    return;
+  }
+
+  DateTime now = rtc.now();
+  String json = "{";
+  json += "\"datahora\":\"" + String(now.year()) + "-" + String(now.month()) + "-" + String(now.day()) +
+          " " + String(now.hour()) + ":" + String(now.minute()) + ":" + String(now.second()) + "\",";
+
+  json += "\"temp_min\":" + String(TEMP_MIN, 1) + ",";
+  json += "\"temp_max\":" + String(TEMP_MAX, 1) + ",";
+  json += "\"umid_min\":" + String(UMID_MIN, 1) + ",";
+  json += "\"umid_max\":" + String(UMID_MAX, 1) + ",";
+  json += "\"pressao_min\":" + String(PRESSAO_MIN, 2) + ",";
+  json += "\"pressao_max\":" + String(PRESSAO_MAX, 2) + ",";
+  json += "\"ativo\":true";
+  json += "}";
+
+  client.println("POST /PROD/setpoints HTTP/1.1");
+  client.println("Host: 91xrkdweb2.execute-api.sa-east-1.amazonaws.com");
+  client.println("Content-Type: application/json");
+  client.print("Content-Length: "); client.println(json.length());
+  client.println("Connection: close");
+  client.println();
+  client.println(json);
+
+  while (client.connected()) {
+    while (client.available()) {
+      String line = client.readStringUntil('\n');
+      Serial.println(line);
+    }
+  }
+  client.stop();
+  Serial.println("Setpoints enviados via HTTP");
+  salvarLogsHttp("Setpoints enviados via HTTP", "INFO");
+}
+
+// === Salvar Logs no Endpoint HTTP ===
+void salvarLogsHttp(const char* mensagem, const char* nivel) {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi não conectado. Falha ao enviar log HTTP");
+    return;
+  }
+
+  WiFiClientSecure client;
+  client.setInsecure();
+
+  if (!client.connect(apiGatewayHost, httpsPort)) {
+    Serial.println("Falha ao conectar HTTPS para logs");
+    return;
+  }
+
+  // Data/hora atual
+  DateTime now = rtc.now();
+
+  // Monta JSON do log
+  char json[256];
+  int n = snprintf(json, sizeof(json),
+    "{\"datahora\":\"%04d-%02d-%02d %02d:%02d:%02d\","
+    "\"log_level\":\"%s\",\"mensagem\":\"%s\"}",
+    now.year(), now.month(), now.day(),
+    now.hour(), now.minute(), now.second(),
+    nivel, mensagem
+  );
+
+  if (n < 0 || n >= (int)sizeof(json)) {
+    Serial.println("JSON overflow ao montar log, abortando envio");
+    return;
+  }
+
+  // Monta requisição HTTP
+  client.print("POST /PROD/logs HTTP/1.1\r\n");
+  client.print("Host: "); client.print(apiGatewayHost); client.print("\r\n");
+  client.print("Content-Type: application/json\r\n");
+  client.print("Content-Length: "); client.print((int)strlen(json)); client.print("\r\n");
+  client.print("Connection: close\r\n\r\n");
+  client.print(json);
+
+  // Lê resposta com timeout
+  unsigned long start = millis();
+  while (client.connected() && (millis() - start) < 5000) {
+    while (client.available()) {
+      String line = client.readStringUntil('\n');
+      Serial.println(line);
+      start = millis();
+    }
+    delay(1);
+  }
+  client.stop();
+
+  Serial.print("Log enviado via HTTP\n");
+  Serial.println(mensagem);
 }

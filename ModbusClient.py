@@ -31,16 +31,16 @@ else:
 print("\n>>> Definindo novos setpoints:")
 
 # Temperatura (multiplicado por 10 para representar float como int)
-temp_min = 210  # 21.0 °C
-temp_max = 280  # 28.0 °C
+temp_min = 210
+temp_max = 350
 
-# Umidade
-umid_min = 500  # 50.0 %
-umid_max = 650  # 65.0 %
+# Umidade (multiplicado por 10 para representar float como int)
+umid_min = 200
+umid_max = 650
 
 # Pressão
-press_min = 350  # 350 Pa
-press_max = 720  # 720 Pa
+press_min = 100
+press_max = 720
 
 # Combina em vetor para envio
 novos_setpoints = [temp_min, temp_max, umid_min, umid_max, press_min, press_max]
