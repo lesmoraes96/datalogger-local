@@ -176,6 +176,7 @@ void handleRoot() {
   html += "</body></html>";
 
   serverHttp.send(200, "text/html; charset=UTF-8", html);
+  salvarLogsHttp("Pagina IHM acessada com sucesso", "INFO");
 }
 
 // ======= HANDLE POST SETPOINTS SERVER HTTP =======
@@ -193,6 +194,7 @@ void handleSetpoints() {
   html += "</body></html>";
 
   serverHttp.send(200, "text/html; charset=UTF-8", html);
+  salvarSetpointsHttp();
 }
 
 
@@ -213,6 +215,7 @@ void handleDadosJson() {
   json += "}";
   
   serverHttp.send(200, "application/json", json);
+  salvarLogsHttp("Dados enviados via HTTP", "INFO");
 }
 
 // === Setup principal ===
