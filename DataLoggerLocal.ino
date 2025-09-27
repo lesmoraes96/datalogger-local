@@ -71,6 +71,7 @@ void inicializarLCD() {
 void inicializarRTC() {
   if (!rtc.begin()) {
     lcd.print("ERRO RTC");
+    salvarLogsHttp("Erro na inicializacao do RTC", "ERROR");
     while (1);
   }
   rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
@@ -82,6 +83,7 @@ void inicializarSD() {
   if (!status) {
     lcd.clear();
     lcd.print("ERRO SD");
+    salvarLogsHttp("Erro na inicializacao do SD", "ERROR");
     while (1);
   }
   if (!SD.exists("/log.csv")) {
@@ -91,7 +93,8 @@ void inicializarSD() {
       arquivo.flush();
       arquivo.close();
       } else {
-      Serial.println("Erro ao criar log.csv");
+      Serial.println("Erro ao criar arquivo de log");
+      salvarLogsHttp("Erro ao criar arquivo de log", "ERROR");
     }
   }
   digitalWrite(SD_CS, HIGH);
@@ -116,6 +119,7 @@ void inicializarServerModbus() {
   serverModbus.begin();
   if (!modbusTCPServer.begin()) {
     Serial.println("Falha ao iniciar servidor Modbus TCP");
+    salvarLogsHttp("Falha ao iniciar servidor Modbus TCP", "ERROR");
     lcd.print("ERRO MODBUS");
     while (1);
   }
@@ -127,6 +131,7 @@ void inicializarADC() {
   if (!pcf.begin()) {
     lcd.clear();
     lcd.print("ERRO ADC");
+    salvarLogsHttp("Falha ao iniciar ADC", "ERROR");
     while (1);
   }
 }
@@ -233,14 +238,15 @@ void setup() {
   digitalWrite(SD_CS, HIGH);
 
   inicializarLCD();
+  inicializarWifi();
   inicializarRTC();
   inicializarADC();
   inicializarSD();
-  inicializarWifi();
   inicializarServerModbus();
   inicializarServerHttp();
 
-  Serial.println("Sistema iniciado.");
+  Serial.println("Sistema iniciado com sucesso");
+  salvarLogsHttp("Sistema iniciado com sucesso", "INFO");
 }
 
 // === Loop principal ===
