@@ -28,8 +28,8 @@ else:
         pressao_int -= 0x100000000  # signed int32
     pressao = pressao_int / 100.0
     print(f"Pressão:         {pressao:.2f} Pa")
-    print(f"Porta fechada:   {'Sim' if registros[3] == 1 else 'Não'}")
-    print(f"Alarme ativo:    {'Sim' if registros[4] == 1 else 'Não'}")
+    print(f"Porta fechada:   {'Sim' if registros[4] == 1 else 'Não'}")
+    print(f"Alarme ativo:    {'Sim' if registros[5] == 1 else 'Não'}")
 
 # --- Definição de setpoints individualmente
 print("\n>>> Definindo novos setpoints:")
