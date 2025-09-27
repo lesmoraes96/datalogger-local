@@ -52,6 +52,7 @@ WiFiClientSecure clientHttps;
 WiFiClient clientHttpHost;
 WebServer serverHttp(80);
 String linkDashboard = "https://lesmoraes.grafana.net/public-dashboards/e4933e3c55714b679a5978b967fe1f29";
+String linkChatBot = "https://notebooklm.google.com/notebook/4674b017-dcee-4ea8-82d2-3efdd1b10fd5";
 const char* ssid = "VIVOFIBRA-3F5A";
 const char* password = "97d1f23f5a";
 const char* apiGatewayHost = "91xrkdweb2.execute-api.sa-east-1.amazonaws.com";
@@ -177,6 +178,10 @@ void handleRoot() {
   html += "<img src='https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=" 
           + linkDashboard + "' alt='QR Code'><br>";
   html += "<a href='" + linkDashboard + "' target='_blank'>" + "Clean Room Monitor" + "</a>";
+
+  // Chatbot AI Agent
+  html += "<h2>🤖 Chatbot</h2>";
+  html += "<a href='" + linkChatBot + "'target='_blank'>Acessar Chatbot</a>";
 
   html += "</body></html>";
 
