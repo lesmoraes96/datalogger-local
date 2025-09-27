@@ -50,7 +50,8 @@ ModbusTCPServer modbusTCPServer;
 PCF8591 pcf(0x48);
 WiFiClientSecure clientHttps;
 WiFiClient clientHttpHost;
-WiFiServer serverHttp(80);
+WebServer serverHttp(80);
+String linkDashboard = "https://lesmoraes.grafana.net/public-dashboards/e4933e3c55714b679a5978b967fe1f29";
 const char* ssid = "VIVOFIBRA-3F5A";
 const char* password = "97d1f23f5a";
 const char* apiGatewayHost = "91xrkdweb2.execute-api.sa-east-1.amazonaws.com";
@@ -131,7 +132,87 @@ void inicializarADC() {
 }
 
 void inicializarServerHttp() {
+  serverHttp.on("/", handleRoot);
+  serverHttp.on("/setpoints", HTTP_POST, handleSetpoints);
+  serverHttp.on("/dados", HTTP_GET, handleDadosJson);
   serverHttp.begin();
+  Serial.println("Servidor HTTP iniciado");
+}
+
+// ======= HANDLE RAIZ (IHM SERVER HTTP) =======
+void handleRoot() {
+  String html = "<!DOCTYPE html><html><head><meta charset='UTF-8'>";
+  html += "<title>IHM Clean Room</title></head><body>";
+  html += "<h2>📊 Medições atuais</h2>";
+  html += "<p><b>Temperatura:</b> " + String(temperatura, 1) + " °C</p>";
+  html += "<p><b>Umidade:</b> " + String(umidade, 1) + " %</p>";
+  html += "<p><b>Pressão:</b> " + String(pressao, 2) + " Pa</p>";
+  html += "<p><b>Porta:</b> " + String(portaFechada ? "Fechada" : "Aberta") + "</p>";
+  html += "<p><b>Alarme:</b> " + String(alarmeAtivo ? "Ativo" : "Inativo") + "</p>";
+
+  html += "<h2>⚙️ Setpoints atuais</h2>";
+  html += "<p>TEMP: " + String(TEMP_MIN) + " - " + String(TEMP_MAX) + " °C</p>";
+  html += "<p>UMID: " + String(UMID_MIN) + " - " + String(UMID_MAX) + " %</p>";
+  html += "<p>PRESSÃO: " + String(PRESSAO_MIN) + " - " + String(PRESSAO_MAX) + " Pa</p>";
+
+  // Formulário para atualizar setpoints
+  html += "<h2>✏️ Definir novos setpoints</h2>";
+  html += "<form method='POST' action='/setpoints'>";
+  html += "TEMP_MIN: <input type='text' name='temp_min' value='" + String(TEMP_MIN) + "'><br>";
+  html += "TEMP_MAX: <input type='text' name='temp_max' value='" + String(TEMP_MAX) + "'><br>";
+  html += "UMID_MIN: <input type='text' name='umid_min' value='" + String(UMID_MIN) + "'><br>";
+  html += "UMID_MAX: <input type='text' name='umid_max' value='" + String(UMID_MAX) + "'><br>";
+  html += "PRESSAO_MIN: <input type='text' name='pressao_min' value='" + String(PRESSAO_MIN) + "'><br>";
+  html += "PRESSAO_MAX: <input type='text' name='pressao_max' value='" + String(PRESSAO_MAX) + "'><br>";
+  html += "<input type='submit' value='Salvar'>";
+  html += "</form>";
+
+  // QR Code + link
+  html += "<h2>📱 Dashboard</h2>";
+  html += "<img src='https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=" 
+          + linkDashboard + "' alt='QR Code'><br>";
+  html += "<a href='" + linkDashboard + "' target='_blank'>" + "Clean Room Monitor" + "</a>";
+
+  html += "</body></html>";
+
+  serverHttp.send(200, "text/html; charset=UTF-8", html);
+}
+
+// ======= HANDLE POST SETPOINTS SERVER HTTP =======
+void handleSetpoints() {
+  if (serverHttp.hasArg("temp_min")) TEMP_MIN = serverHttp.arg("temp_min").toFloat();
+  if (serverHttp.hasArg("temp_max")) TEMP_MAX = serverHttp.arg("temp_max").toFloat();
+  if (serverHttp.hasArg("umid_min")) UMID_MIN = serverHttp.arg("umid_min").toFloat();
+  if (serverHttp.hasArg("umid_max")) UMID_MAX = serverHttp.arg("umid_max").toFloat();
+  if (serverHttp.hasArg("pressao_min")) PRESSAO_MIN = serverHttp.arg("pressao_min").toFloat();
+  if (serverHttp.hasArg("pressao_max")) PRESSAO_MAX = serverHttp.arg("pressao_max").toFloat();
+
+  String html = "<!DOCTYPE html><html><head><meta charset='UTF-8'></head><body>";
+  html += "<h3>✅ Setpoints atualizados!</h3>";
+  html += "<a href='/'>Voltar</a>";
+  html += "</body></html>";
+
+  serverHttp.send(200, "text/html; charset=UTF-8", html);
+}
+
+
+// ======= HANDLE GET JSON SERVER HTTP=======
+void handleDadosJson() {
+  String json = "{";
+  json += "\"temperatura\":" + String(temperatura, 1) + ",";
+  json += "\"umidade\":" + String(umidade, 1) + ",";
+  json += "\"pressao\":" + String(pressao, 2) + ",";
+  json += "\"portaFechada\":" + String(portaFechada ? 1 : 0) + ",";
+  json += "\"alarmeAtivo\":" + String(alarmeAtivo ? 1 : 0) + ",";
+  json += "\"TEMP_MIN\":" + String(TEMP_MIN) + ",";
+  json += "\"TEMP_MAX\":" + String(TEMP_MAX) + ",";
+  json += "\"UMID_MIN\":" + String(UMID_MIN) + ",";
+  json += "\"UMID_MAX\":" + String(UMID_MAX) + ",";
+  json += "\"PRESSAO_MIN\":" + String(PRESSAO_MIN) + ",";
+  json += "\"PRESSAO_MAX\":" + String(PRESSAO_MAX);
+  json += "}";
+  
+  serverHttp.send(200, "application/json", json);
 }
 
 // === Setup principal ===
@@ -168,7 +249,7 @@ void loop() {
   alternarTela();
   gravarDados();
   integrarDadosScada();
-  integrarDadosServerHttp();
+  serverHttp.handleClient();
   delay(2000);
 }
 
@@ -231,7 +312,7 @@ void alternarTela() {
   } else {
     char linha1[17], linha2[17];
     snprintf(linha1, sizeof(linha1), "T:%.1fC U:%d%%", temperatura, (int)umidade);
-    snprintf(linha2, sizeof(linha2), "P:%dPa [%s]", (int)pressao, portaFechada ? "OK" : "PORTA");
+    snprintf(linha2, sizeof(linha2), "P:%dPa [%s]", (int)pressao, portaFechada ? "OK   " : "PORTA");
     lcd.setCursor(0, 0); lcd.print(linha1);
     lcd.setCursor(0, 1); lcd.print(linha2);
   }
@@ -381,55 +462,6 @@ void integrarDadosScada() {
       Serial.println("Cliente Modbus desconectado");
       salvarLogsHttp("Cliente Modbus desconectado", "INFO");
     }
-  }
-}
-
-// === Rota para dados JSON ===
-void integrarDadosServerHttp() {
-  clientHttpHost = serverHttp.available();
-  if (clientHttpHost) {
-    Serial.println("Cliente Http conectado");
-    salvarLogsHttp("Cliente Http conectado", "INFO");
-
-    // Espera por dados do cliente
-    while (clientHttpHost.connected() && !clientHttpHost.available()) {
-      delay(1);
-    }
-
-    String req = clientHttpHost.readStringUntil('\r');
-    clientHttpHost.readStringUntil('\n');
-    Serial.println("Requisição: " + req);
-
-    if (req.indexOf("GET /dados") >= 0) {
-      String json = "{";
-      json += "\"temperatura\":" + String(temperatura, 1) + ",";
-      json += "\"umidade\":" + String(umidade, 1) + ",";
-      json += "\"pressao\":" + String(pressao, 0) + ",";
-      json += "\"portaFechada\":" + String(portaFechada ? "true" : "false") + ",";
-      json += "\"alarmeAtivo\":" + String(alarmeAtivo ? "true" : "false");
-      json += "}";
-
-      clientHttpHost.println("HTTP/1.1 200 OK");
-      clientHttpHost.println("Content-Type: application/json");
-      clientHttpHost.println("Connection: close");
-      clientHttpHost.println();
-      clientHttpHost.println(json);
-
-      Serial.println("JSON enviado:");
-      Serial.println(json);
-      salvarLogsHttp("JSON enviado", "INFO");
-    } else {
-      clientHttpHost.println("HTTP/1.1 404 Not Found");
-      clientHttpHost.println("Content-Type: text/plain");
-      clientHttpHost.println("Connection: close");
-      clientHttpHost.println();
-      clientHttpHost.println("Rota não encontrada.");
-      salvarLogsHttp("Rota não encontrada.", "WARN");
-    }
-
-    delay(1);
-    clientHttpHost.stop();
-    Serial.println("Cliente Http desconectado\n");
   }
 }
 
