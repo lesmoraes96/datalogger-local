@@ -399,8 +399,8 @@ void salvarMedicoesHttp() {
     }
   }
   client.stop();
-  Serial.println("Medicoes enviados via HTTP");
-  salvarLogsHttp("Medicoes enviados via HTTP", "INFO");
+  Serial.println("Medicoes enviadas via HTTP");
+  salvarLogsHttp("Medicoes enviadas via HTTP", "INFO");
 }
 
 // === Gravar Dados de Medicoes ===
@@ -448,23 +448,35 @@ void integrarDadosScada() {
       modbusTCPServer.holdingRegisterWrite(4, portaFechada ? 1 : 0);
       modbusTCPServer.holdingRegisterWrite(5, alarmeAtivo ? 1 : 0);
 
-      // Lê setpoints atualizados pelo cliente
-      TEMP_MIN     = modbusTCPServer.holdingRegisterRead(10) / 10.0;
-      TEMP_MAX     = modbusTCPServer.holdingRegisterRead(11) / 10.0;
-      UMID_MIN     = modbusTCPServer.holdingRegisterRead(12) / 10.0;
-      UMID_MAX     = modbusTCPServer.holdingRegisterRead(13) / 10.0;
-      PRESSAO_MIN  = modbusTCPServer.holdingRegisterRead(14);
-      PRESSAO_MAX  = modbusTCPServer.holdingRegisterRead(15);
-      Serial.println("Dados integrados com Scada");
-      Serial.print("TEMP_MIN: "); Serial.println(TEMP_MIN);
-      Serial.print("TEMP_MAX: "); Serial.println(TEMP_MAX);
-      Serial.print("UMID_MIN: "); Serial.println(UMID_MIN);
-      Serial.print("UMID_MAX: "); Serial.println(UMID_MAX);
-      Serial.print("PRESSAO_MIN: "); Serial.println(PRESSAO_MIN);
-      Serial.print("PRESSAO_MAX: "); Serial.println(PRESSAO_MAX);
-      salvarLogsHttp("Dados integrados com Scada", "INFO");
+       // Lê setpoints somente se já tiver recebido dados Modbus válidos
+      bool setpointsRecebidos = false;
+      for (int i = 10; i <= 15; i++) {
+        if (modbusTCPServer.holdingRegisterRead(i) != 0) {
+          setpointsRecebidos = true;
+          break;
+        }
+      }
 
-      salvarSetpointsHttp();
+      // Lê setpoints atualizados pelo cliente
+      if (setpointsRecebidos) {
+        TEMP_MIN     = modbusTCPServer.holdingRegisterRead(10) / 10.0;
+        TEMP_MAX     = modbusTCPServer.holdingRegisterRead(11) / 10.0;
+        UMID_MIN     = modbusTCPServer.holdingRegisterRead(12) / 10.0;
+        UMID_MAX     = modbusTCPServer.holdingRegisterRead(13) / 10.0;
+        PRESSAO_MIN  = modbusTCPServer.holdingRegisterRead(14);
+        PRESSAO_MAX  = modbusTCPServer.holdingRegisterRead(15);
+
+        Serial.println("Dados integrados com Scada");
+        Serial.print("TEMP_MIN: "); Serial.println(TEMP_MIN);
+        Serial.print("TEMP_MAX: "); Serial.println(TEMP_MAX);
+        Serial.print("UMID_MIN: "); Serial.println(UMID_MIN);
+        Serial.print("UMID_MAX: "); Serial.println(UMID_MAX);
+        Serial.print("PRESSAO_MIN: "); Serial.println(PRESSAO_MIN);
+        Serial.print("PRESSAO_MAX: "); Serial.println(PRESSAO_MAX);
+
+        salvarLogsHttp("Dados integrados com Scada", "INFO");
+        salvarSetpointsHttp();
+      }
     } else {
       // Cliente desconectou, espera nova conexão
       clientModbusConectado = false;

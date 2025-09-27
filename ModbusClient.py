@@ -1,4 +1,6 @@
 from pymodbus.client import ModbusTcpClient
+import time
+
 
 # Endereço IP do ESP32 e porta Modbus TCP
 MODBUS_IP = '192.168.15.22'
@@ -12,6 +14,8 @@ if not client.connect():
 
 # --- Leitura dos registradores 0 a 4 (dados de sensores)
 print(">>> Lendo registradores 0 a 4 (dados de sensores):")
+
+time.sleep(2)  # espera para garantir dados válidos
 rr = client.read_holding_registers(address=0, count=5)
 if rr.isError():
     print("Erro na leitura!")
