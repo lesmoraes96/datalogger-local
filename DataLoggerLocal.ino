@@ -148,29 +148,29 @@ void inicializarServerHttp() {
 // ======= HANDLE RAIZ (IHM SERVER HTTP) =======
 void handleRoot() {
   String html = "<!DOCTYPE html><html><head><meta charset='UTF-8'>";
-  html += "<title>IHM Clean Room</title></head><body>";
-  html += "<h2>📊 Medições atuais</h2>";
-  html += "<p><b>Temperatura:</b> " + String(temperatura, 1) + " °C</p>";
-  html += "<p><b>Umidade:</b> " + String(umidade, 1) + " %</p>";
-  html += "<p><b>Pressão:</b> " + String(pressao, 2) + " Pa</p>";
-  html += "<p><b>Porta:</b> " + String(portaFechada ? "Fechada" : "Aberta") + "</p>";
-  html += "<p><b>Alarme:</b> " + String(alarmeAtivo ? "Ativo" : "Inativo") + "</p>";
+  html += "<title>HMI Clean Room</title></head><body>";
+  html += "<h2>📊 Current Measurements</h2>";
+  html += "<p><b>Temperature:</b> " + String(temperatura, 1) + " °C</p>";
+  html += "<p><b>Humidity:</b> " + String(umidade, 1) + " %</p>";
+  html += "<p><b>Pressure:</b> " + String(pressao, 2) + " Pa</p>";
+  html += "<p><b>Door:</b> " + String(portaFechada ? "Closed" : "Open") + "</p>";
+  html += "<p><b>Alarm:</b> " + String(alarmeAtivo ? "Active" : "Inactive") + "</p>";
 
-  html += "<h2>⚙️ Setpoints atuais</h2>";
+  html += "<h2>⚙️ Current Setpoints</h2>";
   html += "<p>TEMP: " + String(TEMP_MIN) + " - " + String(TEMP_MAX) + " °C</p>";
   html += "<p>UMID: " + String(UMID_MIN) + " - " + String(UMID_MAX) + " %</p>";
-  html += "<p>PRESSÃO: " + String(PRESSAO_MIN) + " - " + String(PRESSAO_MAX) + " Pa</p>";
+  html += "<p>PRESSURE: " + String(PRESSAO_MIN) + " - " + String(PRESSAO_MAX) + " Pa</p>";
 
   // Formulário para atualizar setpoints
-  html += "<h2>✏️ Definir novos setpoints</h2>";
+  html += "<h2>✏️ Define New Setpoints</h2>";
   html += "<form method='POST' action='/setpoints'>";
-  html += "TEMP_MIN: <input type='text' name='temp_min' value='" + String(TEMP_MIN) + "'><br>";
-  html += "TEMP_MAX: <input type='text' name='temp_max' value='" + String(TEMP_MAX) + "'><br>";
-  html += "UMID_MIN: <input type='text' name='umid_min' value='" + String(UMID_MIN) + "'><br>";
-  html += "UMID_MAX: <input type='text' name='umid_max' value='" + String(UMID_MAX) + "'><br>";
-  html += "PRESSAO_MIN: <input type='text' name='pressao_min' value='" + String(PRESSAO_MIN) + "'><br>";
-  html += "PRESSAO_MAX: <input type='text' name='pressao_max' value='" + String(PRESSAO_MAX) + "'><br>";
-  html += "<input type='submit' value='Salvar'>";
+  html += "TEMP_MIN: <input type='text' name='temp_min' value='" + String(TEMP_MIN) + "'> °C<br>";
+  html += "TEMP_MAX: <input type='text' name='temp_max' value='" + String(TEMP_MAX) + "'> °C<br>";
+  html += "UMID_MIN: <input type='text' name='umid_min' value='" + String(UMID_MIN) + "'> %<br>";
+  html += "UMID_MAX: <input type='text' name='umid_max' value='" + String(UMID_MAX) + "'> %<br>";
+  html += "PRESSURE_MIN: <input type='text' name='pressao_min' value='" + String(PRESSAO_MIN) + "'> Pa<br>";
+  html += "PRESSURE_MAX: <input type='text' name='pressao_max' value='" + String(PRESSAO_MAX) + "'> Pa<br>";
+  html += "<input type='submit' value='Save'>";
   html += "</form>";
 
   // QR Code + link
@@ -181,7 +181,7 @@ void handleRoot() {
 
   // Chatbot AI Agent
   html += "<h2>🤖 Chatbot</h2>";
-  html += "<a href='" + linkChatBot + "'target='_blank'>Acessar Chatbot</a>";
+  html += "<a href='" + linkChatBot + "'target='_blank'>Access Chatbot</a>";
 
   html += "</body></html>";
 
