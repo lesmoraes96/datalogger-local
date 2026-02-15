@@ -50,7 +50,10 @@ DataLoggerLocal/
 ├── docs/
 │   ├── system_logical_architecture.png   # High-level system diagram (from article)
 │   ├── rami_layers_implementation.png    # RAMI 4.0 mapping (from article)
-│   └── local_datalogger_prototype.jpg    # Prototype photograph
+│   ├── local_datalogger_prototype.jpg     # Prototype photograph
+│   ├── virtual_hmi_implementation.png     # Web-based HMI screenshot
+│   ├── bi_dashboard_grafana.png           # BI/Grafana dashboard
+│   └── system_electrical_diagram.png      # Fritzing wiring diagram
 ├── esp32_datalogger_firmware.ino         # ESP32 firmware (Arduino)
 ├── generate_qrcode.py                    # Generates QR code for Grafana/BI dashboard
 ├── modbus_client.py                      # Modbus TCP client for testing SCADA integration
@@ -78,6 +81,10 @@ The firmware in `esp32_datalogger_firmware.ino` provides:
 - HTTP/HTTPS client to send JSON payloads to a cloud API gateway
 - Modbus TCP server (port 502) exposing holding registers for sensors and setpoints
 - Buzzer and LEDs for audible/visual alarm indication
+
+The embedded web server provides a virtual HMI at the device’s local IP (e.g. `http://192.168.15.22`), where operators can view current measurements and setpoints, define new alarm limits, and access the dashboard via QR code or link.
+
+![Virtual HMI for controlled environment](docs/virtual_hmi_implementation.png)
 
 ### 4.2 Configuration (example)
 
@@ -122,6 +129,10 @@ The output file is `grafana_dashboard_qr.png` in the current directory.
 
 ![Dashboard QR code](grafana_dashboard_qr.png)
 
+Scanning the QR code (or opening the dashboard URL) leads to the Clean Room Monitor BI dashboard, which displays average and current readings (temperature, humidity, pressure), gauges with setpoints, measurements history, setpoints history, and log tables.
+
+![Business Intelligence dashboard for controlled environment](docs/bi_dashboard_grafana.png)
+
 ### 5.2 Modbus client test
 
 `modbus_client.py` is a Modbus TCP client used to test the ESP32 Modbus server: it reads holding registers for temperature, humidity, pressure, door state, and alarm state, and can write setpoint registers. Set `MODBUS_IP` and `MODBUS_PORT` at the top of the script to match the ESP32, then run:
@@ -164,6 +175,10 @@ Main components of the local data logger prototype:
 - **Storage**: SD card (SPI)
 - **RTC**: DS1307 for timestamps
 - **Alarms**: Buzzer and LEDs (e.g., green and red)
+
+The electrical diagram below shows the connections between the ESP32 and the sensors and peripherals (DHT11, MPXV7002DP, PCF8591, LCD, SD card, RTC DS1307, buzzer, LEDs, reed switch).
+
+![Electrical diagram of the system](docs/system_electrical_diagram.png)
 
 ![Local datalogger prototype](docs/local_datalogger_prototype.jpg)
 
