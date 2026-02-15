@@ -2,15 +2,17 @@ import os
 import pymysql
 import json
 
-# Variáveis de ambiente configuradas no Lambda
+
+# Environment variables configured in Lambda
 RDS_HOST = os.environ['RDS_HOST']
 RDS_USER = os.environ['RDS_USER']
 RDS_PASS = os.environ['RDS_PASS']
 RDS_DB   = os.environ['RDS_DB']
 RDS_PORT = int(os.environ['RDS_PORT'])
 
+
 def lambda_handler(event, context):
-    # Conectar ao RDS
+    # Connect to RDS
     conn = pymysql.connect(
         host=RDS_HOST,
         user=RDS_USER,
@@ -23,27 +25,34 @@ def lambda_handler(event, context):
     try:
         with conn.cursor() as cur:
             sql = """
-                INSERT INTO tabela_medicoes (datahora, temperatura, umidade, pressao, estado_porta, estado_alarme)
+                INSERT INTO measurements_table (
+                    datetime,
+                    temperature,
+                    humidity,
+                    pressure,
+                    door_state,
+                    alarm_state
+                )
                 VALUES (%s, %s, %s, %s, %s, %s)
             """
             cur.execute(sql, (
-                event.get('datahora'),
-                event.get('temperatura'),
-                event.get('umidade'),
-                event.get('pressao'),
-                event.get('estado_porta'),
-                event.get('estado_alarme')
+                event.get('datetime'),
+                event.get('temperature'),
+                event.get('humidity'),
+                event.get('pressure'),
+                event.get('door_state'),
+                event.get('alarm_state')
             ))
             conn.commit()
 
         return {
             'statusCode': 200,
-            'body': json.dumps('Medições salvas com sucesso!')
+            'body': json.dumps('Measurements saved successfully!')
         }
     except Exception as e:
         return {
             'statusCode': 500,
-            'body': json.dumps(f"Erro ao salvar medições no RDS: {str(e)}")
+            'body': json.dumps(f"Error saving measurements to RDS: {str(e)}")
         }
     finally:
         conn.close()

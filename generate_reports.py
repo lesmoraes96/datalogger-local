@@ -6,7 +6,8 @@ import json
 import boto3
 from datetime import datetime
 
-# Variáveis de ambiente configuradas no Lambda
+
+# Environment variables configured in Lambda
 RDS_HOST = os.environ['RDS_HOST']
 RDS_USER = os.environ['RDS_USER']
 RDS_PASS = os.environ['RDS_PASS']
@@ -14,15 +15,18 @@ RDS_DB   = os.environ['RDS_DB']
 RDS_PORT = int(os.environ['RDS_PORT'])
 BUCKET_NAME = os.environ['BUCKET_NAME']
 
-# Cliente S3
+
+# S3 client
 s3_client = boto3.client("s3")
 
-# Prefixos por tabela
+
+# Prefixes by table
 PREFIX_MAP = {
-    "tabela_logs": "logs/",
-    "tabela_medicoes": "medicoes/",
-    "tabela_setpoints": "relatorios/"
+    "logs_table": "logs/",
+    "measurements_table": "measurements/",
+    "setpoints_table": "reports/"
 }
+
 
 def lambda_handler(event, context):
     conn = pymysql.connect(
@@ -34,38 +38,38 @@ def lambda_handler(event, context):
         connect_timeout=5
     )
 
-    tabela = event.get('tabela')
-    data_inicio = event.get('data_inicio')
-    data_fim = event.get('data_fim')
+    table_name = event.get('table_name')
+    start_date = event.get('start_date')
+    end_date = event.get('end_date')
 
     try:
-        if not tabela:
-            return {"statusCode": 400, "body": "Parâmetro 'tabela' é obrigatório."}
+        if not table_name:
+            return {"statusCode": 400, "body": "Parameter 'table_name' is required."}
         
-        if tabela not in PREFIX_MAP:
-            return {"statusCode": 400, "body": f"Tabela '{tabela}' não suportada."}
+        if table_name not in PREFIX_MAP:
+            return {"statusCode": 400, "body": f"Table '{table_name}' not supported."}
 
         with conn.cursor() as cur:
-            sql = f"SELECT * FROM {tabela}"
-            if data_inicio and data_fim and tabela in ["tabela_medicoes", "tabela_logs", "tabela_setpoints"]:
-                sql += f" WHERE datahora BETWEEN '{data_inicio}' AND '{data_fim}'"
+            sql = f"SELECT * FROM {table_name}"
+            if start_date and end_date and table_name in ["measurements_table", "logs_table", "setpoints_table"]:
+                sql += f" WHERE datetime BETWEEN '{start_date}' AND '{end_date}'"
 
             cur.execute(sql)
             rows = cur.fetchall()
             colnames = [desc[0] for desc in cur.description]
 
-        # Criar CSV
+        # Create CSV
         output = io.StringIO()
         writer = csv.writer(output)
         writer.writerow(colnames)
         writer.writerows(rows)
         csv_data = output.getvalue()
 
-        # Nome do arquivo
-        prefix = PREFIX_MAP[tabela]
-        filename = f"{prefix}{tabela}_report_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
+        # Filename
+        prefix = PREFIX_MAP[table_name]
+        filename = f"{prefix}{table_name}_report_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
 
-        # Upload para o S3
+        # Upload to S3
         s3_client.put_object(
             Bucket=BUCKET_NAME,
             Key=filename,
@@ -75,10 +79,10 @@ def lambda_handler(event, context):
 
         return {
             'statusCode': 200,
-            'body': f"Relatório salvo em s3://{BUCKET_NAME}/{filename}"
+            'body': f"Report saved to s3://{BUCKET_NAME}/{filename}"
         }
 
     except Exception as e:
-        return {'statusCode': 500, 'body': json.dumps(f"Erro ao gerar relatorio: {str(e)}")}
+        return {'statusCode': 500, 'body': json.dumps(f"Error generating report: {str(e)}")}
     finally:
         conn.close()
